@@ -262,6 +262,7 @@ const uint8_t ciSystemState_lowbat =	 	 1;
 const uint8_t ciSystemState_startup =		 9;
 const uint8_t ciSystemState_normal =		10;
 const uint8_t ciSystemState_demomode =		11;
+const uint8_t ciSystemState_bluefront =		12;
 uint8_t iSystemState = ciSystemState_startup;
 
 bool bFlag_LowBat_enabled = true;
@@ -1504,13 +1505,19 @@ void handleSystemState() {
 			if ( ulDuration > cwSystemState_DemoModeWaitTime ) {
 				ulSystemState_TimeStamp_LastAction =  millis();
 				// switch to DemoMode
-				iSystemState = ciSystemState_demomode;
-				sequencer_NextStep();
+				// iSystemState = ciSystemState_demomode;
+				// sequencer_NextStep();
+        // switch to blue front mode
+				iSystemState = ciSystemState_bluefront;
 			}
 		} break;
 		case ciSystemState_demomode:
 		case ciSystemState_normal: {
 			// nothing to do here
+		} break;
+		case ciSystemState_bluefront: {
+			setLEDs_blue_front();
+			iSystemState = ciSystemState_normal;
 		} break;
 		default: {
 			// something went wronge - so reset to normal
