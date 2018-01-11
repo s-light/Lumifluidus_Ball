@@ -62,13 +62,13 @@
 // 	10.02.2015 22:55 extend LED test with FaderLin and ButtonInput
 // 	14.03.2015 20:10 added receive Color function
 // 	11.01.2018 17:02 converted to git repository
+// 	03.06.2015 10:45 added receive Infrared onOff function
+// 	03.06.2015 23:05 added sendLowBatWarning function
+// 	04.06.2015 01:42 added handleLowBat function
+// 	18.09.2015 16:38 added deactivate LowBat option
+// 	19.09.2015 23:21 added new SystemState handling.
+// 	11.01.2018 17:02 updated with V2 code
 //
-//
-// TO DO:
-// 	~
-// 	~
-// 	~ check RFM69 lib  license?!
-// 		if i understand this right - if i use the RFM69 lib i have to license my own work also as GPL. ??
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -93,6 +93,16 @@
 // 	limitations under the License.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+
+
+
+
+
+
+
+
+
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Includes:  (must be at the beginning of the file.)
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -100,7 +110,7 @@
 // #include "file.h"
 
 // device identity structure definitions
-#include "DeviceIdentity.h"
+#include "DeviceIdentityStruct.h"
 
 // arduino SPI
 #include <SPI.h>
@@ -118,6 +128,11 @@
 
 #include <slight_FaderLin.h>
 #include <slight_ButtonInput.h>
+
+#include "DeviceIdentity.h"
+#include "printHelper.h"
+
+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // info
@@ -189,12 +204,6 @@ boolean bDebugOut_LiveSign_LED_Enabled		= 1;
 
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// EEPROMEx
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-unsigned int eeprom_Address_DeviceHardware = 0;
-unsigned int eeprom_Address_DeviceConfig = eeprom_Address_DeviceHardware + sizeof(tDeviceHardware);
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Device Information
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //#include "DeviceInfo.h"
@@ -245,8 +254,34 @@ const bool radio_PromiscuosMode =	false;
 #define radio_KEY 					"!Light_Ball_Art!"
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// System State
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+const uint8_t ciSystemState_off =			 0;
+const uint8_t ciSystemState_lowbat =	 	 1;
+const uint8_t ciSystemState_startup =		 9;
+const uint8_t ciSystemState_normal =		10;
+const uint8_t ciSystemState_demomode =		11;
+uint8_t iSystemState = ciSystemState_startup;
+
+bool bFlag_LowBat_enabled = true;
+
+unsigned long ulSystemState_TimeStamp_LastAction	= 0;
+const uint16_t cwSystemState_DemoModeWaitTime		= 5000; //ms
+const uint16_t cwSystemState_LowBatErrorInterval	= 2000; //ms
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // LED Board
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// Board State:
+const uint8_t ciLEDBoardState_off =			 0;
+const uint8_t ciLEDBoardState_showerror =	 1;
+const uint8_t ciLEDBoardState_on =			10;
+const uint8_t ciLEDBoardState_fade =		11;
+const uint8_t ciLEDBoardState_switch =		12;
+uint8_t iLEDBoardState = ciLEDBoardState_fade;
+
 
 // Infrared LED on PD7 OC2A = D15
 const uint8_t pinIRLED = 15;
@@ -281,6 +316,18 @@ slight_ButtonInput myButtonSwitchColor(
 	14, // uint8_t cbPin_New,
 	myInput_callback_GetInput, // tCbfuncGetInput cbfuncGetInput_New,
 	myCallback_onEvent, // tcbfOnEvent cbfCallbackOnEvent_New,
+	  30, // const uint16_t cwDuration_Debounce_New = 30,
+	1000, // const uint16_t cwDuration_HoldingDown_New = 1000,
+	  50, // const uint16_t cwDuration_ClickSingle_New =   50,
+	3000, // const uint16_t cwDuration_ClickLong_New =   3000,
+	 100  // const uint16_t cwDuration_ClickDouble_New = 1000
+);
+
+slight_ButtonInput myButtonLowBat(
+	14, // uint8_t cbID_New
+	14, // uint8_t cbPin_New,
+	myInput_callback_GetInput, // tCbfuncGetInput cbfuncGetInput_New,
+	myCallbackLowBat_onEvent, // tcbfOnEvent cbfCallbackOnEvent_New,
 	  30, // const uint16_t cwDuration_Debounce_New = 30,
 	1000, // const uint16_t cwDuration_HoldingDown_New = 1000,
 	  50, // const uint16_t cwDuration_ClickSingle_New =   50,
@@ -436,22 +483,21 @@ void handleMenu_Config(Print &pOut, char *caCommand) {
 	// bMenuMode = cbMenuMode_Main;
 	// bMenu_Input_Flag_EOL = true;
 
-	/**
-		// Individual Hardware Addresses
-		struct tDeviceHardware {
-			uint16_t ID;
-			uint8_t radio_Frequency;
-		};
-
-		// Device Configuration
-		struct tDeviceConfig {
-			uint8_t bBallID;
-			uint8_t bNetworkID;
-			uint8_t bMasterID;
-			uint8_t bBallStartAddress;
-			uint16_t uiFadeTime;
-		};
-	/**/
+    //
+		// // Individual Hardware Addresses
+		// struct tDeviceHardware {
+		// 	uint16_t ID;
+		// 	uint8_t radio_Frequency;
+		// };
+    //
+		// // Device Configuration
+		// struct tDeviceConfig {
+		// 	uint8_t bBallID;
+		// 	uint8_t bNetworkID;
+		// 	uint8_t bMasterID;
+		// 	uint8_t bBallStartAddress;
+		// 	uint16_t uiFadeTime;
+		// };
 
 	// format: '_:65535'
 	char *caValue = &caCommand[2];
@@ -589,6 +635,7 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 			pOut.println(F("\t 't': send runtime "));
 			pOut.println(F("\t 'l': test led-driver steps"));
 			pOut.println(F("\t 'L': test led-driver static"));
+			pOut.println(F("\t '0': toggle LowBat warning"));
 			// pOut.println(F("\t 'f': DemoFadeTo(ID, value) 'f1:65535'"));
 			pOut.println();
 			pOut.println(F("\t 'set:' enter SubMenu1"));
@@ -597,7 +644,7 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 		} break;
 		case 'i': {
 			print_info(pOut);
-			printRFM69Info(pOut);
+			printRFM69Info(pOut, &dconfThisBall, &dhwThisBall);
 		} break;
 		case 'y': {
 			pOut.println(F("\t toggle DebugOut livesign Serial:"));
@@ -617,7 +664,7 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 			pOut.println(F("Tests:"));
 
 			pOut.println(F("   "));
-			printRFM69Info(pOut);
+			printRFM69Info(pOut, &dconfThisBall, &dhwThisBall);
 
 			pOut.println();
 
@@ -631,15 +678,27 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 
 		case 'l': {
 			pOut.println(F("\t test LED-Driver"));
+			iSystemState = ciSystemState_normal;
 			ledboard_test_nextColor();
 		} break;
 		case 'L': {
 			pOut.println(F("\t test LED-Driver static"));
+			iSystemState = ciSystemState_normal;
 			tlc.setLED(0, 200,   0,   0);
 			tlc.setLED(1,   0, 200,   0);
 			tlc.setLED(2,   0,   0, 200);
 			tlc.setLED(3, 200, 200, 200);
 			tlc.write();
+		} break;
+		case '0': {
+			pOut.println(F("\t toggle LowBat warning:"));
+			bFlag_LowBat_enabled = !bFlag_LowBat_enabled;
+			pOut.print(F("\t bFlag_LowBat_enabled:"));
+			pOut.println(bFlag_LowBat_enabled);
+			if(!bFlag_LowBat_enabled){
+				iLEDBoardState = ciLEDBoardState_on;
+				iSystemState = ciSystemState_startup;
+			}
 		} break;
 
 		//--------------------------------------------------------------------------------
@@ -858,265 +917,10 @@ void handle_SerialReceive() {
 }
 
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// EEPROMEx functions
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-/* print Helper
-void print_HEX(Print &pOut, uint8_t bValue) {
-	if( bValue < 0x10) {
-		pOut.print("0");
-	}
-	pOut.print(bValue,HEX);
-}
-
-void print_MAC(Print &pOut, uint8_t *array) {
-	//pOut.print(F(" "));
-	uint8_t bIndex = 0;
-	print_HEX(pOut, array[bIndex]);
-	for(bIndex = 1; bIndex < 6; bIndex++){
-		pOut.print(F(", "));
-		print_HEX(pOut, array[bIndex]);
-	}
-}
-
-
-uint8_t print_AlignRight_uint16_t(Print &pOut, uint16_t wValue) {
-	uint8_t bLeadingZeros = 0;
-	if (wValue < 10000) {
-		bLeadingZeros = bLeadingZeros + 1;
-		pOut.print(F(" "));
-		if (wValue < 1000) {
-			bLeadingZeros = bLeadingZeros + 1;
-			Serial.print(F(" "));
-			if (wValue < 100) {
-				bLeadingZeros = bLeadingZeros + 1;
-				Serial.print(F(" "));
-				if (wValue < 10) {
-					bLeadingZeros = bLeadingZeros + 1;
-					Serial.print(F(" "));
-				}
-			}
-		}
-	}
-	pOut.print(wValue);
-	return bLeadingZeros;
-}
-
-*/
-
-void eeprom_DeviceHW_print(Print &pOut, tDeviceHardware *dhwTemp){
-	/* *
-	// Individual Hardware Addresses
-	struct tDeviceHardware {
-		uint16_t ID;
-	};
-	* */
-	pOut.println(F("\t deviceHW values:"));
-	pOut.print  (F("\t   ID: "));
-	pOut.print  ((*dhwTemp).ID);
-	pOut.println();
-	pOut.print  (F("\t   radio_Frequency: "));
-	printRFM69Frequence(pOut, (*dhwTemp).radio_Frequency);
-	pOut.println();
-}
-
-// return:  >0 = success
-uint8_t eeprom_DeviceHW_read(tDeviceHardware *dhwNew){
-	// read EEPROM and update dpThisDevice.
-	uint8_t bResultFlag = 0;
-	Serial.println(F("reading DeviceHW values from EEPROM:"));
-	Serial.print(F("\t eeprom_Address_DeviceHardware:"));
-	Serial.println(eeprom_Address_DeviceHardware);
-	Serial.print(F("\t sizeof(tDeviceHardware):"));
-	Serial.print(sizeof(tDeviceHardware));
-	Serial.println(F(" uint8_ts"));
-	tDeviceHardware dhwTemp;
-	uint8_t bReaduint8_t = 0;
-	bReaduint8_t = EEPROM.readBlock(eeprom_Address_DeviceHardware, dhwTemp);
-	if ( bReaduint8_t == sizeof(tDeviceHardware) ) {
-		bResultFlag = 1;
-		Serial.print(F("\t   read "));
-		Serial.print(bReaduint8_t);
-		Serial.println(F(" uint8_ts"));
-		// copy data to local struct.
-		// (*dhwNew).ID = dhwTemp.ID;
-		memcpy(dhwNew, &dhwTemp, sizeof(tDeviceHardware));
-	} else {
-		// something went wrong.
-			bResultFlag = 0;
-		Serial.println(F("\t there occurred an error while reading EEPROM."));
-		Serial.print(F("\t   read "));
-		Serial.print(bReaduint8_t);
-		Serial.println(F(" uint8_ts"));
-	}
-	return bResultFlag;
-};
-
-// return:  >0 = success
-uint8_t eeprom_DeviceHW_update(Print &pOut, tDeviceHardware *dhwNew){
-	uint8_t bResultFlag = 0;
-	// update EEPROM with dhwNew.
-	pOut.println(F("update Device Info in EEPROM:"));
-	//pOut.print(F("  free RAM = "));
-	//pOut.println(freeRam());
-	pOut.print(F("\t eeprom_Address_DeviceHardware: "));
-	pOut.println(eeprom_Address_DeviceHardware);
-	pOut.print(F("\t sizeof(tDeviceHardware): "));
-	pOut.print(sizeof(tDeviceHardware));
-	pOut.println(F(" uint8_ts"));
-	uint8_t bWrittenuint8_t = 0;
-	bWrittenuint8_t = EEPROM.updateBlock(eeprom_Address_DeviceHardware, (*dhwNew));
-	//pOut.print(F("  free RAM = "));
-	//pOut.println(freeRam());
-	if ( bWrittenuint8_t > 0 ) {
-		pOut.print(F("\t   updated "));
-		pOut.print(bWrittenuint8_t);
-		pOut.println(F(" uint8_ts"));
-		//pOut.println(F(" is it a timing thing?"));
-		pOut.println(F("\t succesfull updated values."));
-	} else {
-		pOut.println(F("\t nothing to update. values are equal."));
-	}
-	return bResultFlag;
-};
-
-
-
-void eeprom_DeviceConfig_print(Print &pOut, tDeviceConfig *dconfTemp){
-	/*
-	// Device Configuration
-	struct tDeviceConfig {
-		uint8_t bBallID;
-		uint8_t bNetworkID;
-		uint8_t bMasterID;
-		uint8_t bBallStartAddress;
-		uint16_t uiFadeTime;
-	};
-	*/
-
-	pOut.println(F("\t tDeviceConfig:"));
-	pOut.print  (F("\t   bBallID : "));
-	pOut.print((*dconfTemp).bBallID);
-	pOut.println();
-	pOut.print  (F("\t   bNetworkID : "));
-	pOut.print((*dconfTemp).bNetworkID);
-	pOut.println();
-	pOut.print  (F("\t   bMasterID : "));
-	pOut.print((*dconfTemp).bMasterID);
-	pOut.println();
-	pOut.print  (F("\t   bBallStartAddress : "));
-	pOut.print((*dconfTemp).bBallStartAddress);
-	pOut.println();
-	pOut.print  (F("\t   uiFadeTime : "));
-	pOut.print((*dconfTemp).uiFadeTime);
-	pOut.println();
-
-}
-
-// return:  >0 = success
-uint8_t eeprom_DeviceConfig_read(tDeviceConfig *dconfNew){
-	// read EEPROM and update dpThisDevice.
-	uint8_t bResultFlag = 0;
-	Serial.println(F("reading DeviceConf values from EEPROM:"));
-	Serial.print(F("\t eeprom_Address_DeviceConfig:"));
-	Serial.println(eeprom_Address_DeviceConfig);
-	Serial.print(F("\t sizeof(tDeviceConfig):"));
-	Serial.print(sizeof(tDeviceConfig));
-	Serial.println(F(" uint8_ts"));
-	tDeviceConfig dconfTemp;
-	uint8_t bReaduint8_t = 0;
-	bReaduint8_t = EEPROM.readBlock(eeprom_Address_DeviceConfig, dconfTemp);
-	if ( bReaduint8_t == sizeof(tDeviceConfig) ) {
-		Serial.print(F("\t   read "));
-		Serial.print(bReaduint8_t);
-		Serial.println(F(" uint8_ts"));
-		//copy data to local struct.
-		// --> is it possible to use memcpy ??
-		// (*dconfNew).uiFadeTime = dconfTemp.uiFadeTime;
-		memcpy(dconfNew, &dconfTemp, sizeof(tDeviceConfig));
-		bResultFlag = 1;
-	} else {
-		// something went wrong.
-		Serial.println(F("\t there occurred an error while reading EEPROM."));
-		Serial.print(F("\t   read "));
-		Serial.print(bReaduint8_t);
-		Serial.println(F(" uint8_ts"));
-		bResultFlag = 0;
-	}
-	return bResultFlag;
-};
-
-// return:  >0 = success
-uint8_t eeprom_DeviceConfig_update(Print &pOut, tDeviceConfig *dconfNew){
-	// update EEPROM with dconfNew.
-	uint8_t bResultFlag = 0;
-	pOut.println(F("update Device Info in EEPROM:"));
-	pOut.print(F("\t eeprom_Address_DeviceConfig: "));
-	pOut.println(eeprom_Address_DeviceConfig);
-	pOut.print(F("\t sizeof(tDeviceConfig): "));
-	pOut.print(sizeof(tDeviceConfig));
-	pOut.println(F(" uint8_ts"));
-	uint8_t bWritenuint8_t = 0;
-	bWritenuint8_t = EEPROM.updateBlock(eeprom_Address_DeviceConfig, (*dconfNew));
-	if ( bWritenuint8_t > 0 ) {
-		pOut.print(F("\t   updated "));
-		pOut.print(bWritenuint8_t);
-		pOut.println(F(" uint8_ts"));
-		pOut.println(F("\t successful updated values."));
-		bResultFlag = 2;
-	} else {
-		pOut.println(F("\t nothing to update. values are equal."));
-		bResultFlag = 1;
-	}
-	return bResultFlag;
-};
-
-
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // RFM69
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-void printRFM69Frequence(Print &pOut, const uint8_t cbFrequence) {
-	switch(cbFrequence) {
-		case RF69_433MHZ: {
-			pOut.print(F("433MHz"));
-		} break;
-		case RF69_868MHZ: {
-			pOut.print(F("868MHz"));
-		} break;
-		case RF69_915MHZ: {
-			pOut.print(F("915MHz"));
-		} break;
-	}
-}
-
-void printRFM69Info(Print &pOut) {
-	// get local things
-	tDeviceConfig *dconfThis = &dconfThisBall;
-	tDeviceHardware *dhwThis = &dhwThisBall;
-
-	pOut.println(F("RFM69 Info:"));
-	pOut.print(F("\t radio_Frequency: "));
-	printRFM69Frequence(pOut, (*dhwThis).radio_Frequency);
-	pOut.println();
-	pOut.print(F("\t NetworkID: "));
-	pOut.println((*dconfThis).bNetworkID);
-	pOut.print(F("\t BallID: "));
-	pOut.println((*dconfThis).bBallID);
-	pOut.print(F("\t MasterID: "));
-	pOut.println((*dconfThis).bMasterID);
-
-	pOut.println(F("\t sw fixed values: "));
-	pOut.print(F("\t   radio_ACKTime: "));
-	pOut.println(radio_ACKTime);
-	pOut.print(F("\t   radio_PromiscuosMode: "));
-	pOut.println(radio_PromiscuosMode);
-	pOut.print(F("\t   radio_KEY: "));
-	pOut.println(radio_KEY);
-}
-
 
 void handle_RFM69Receive() {
 	if ( radio.receiveDone() ) {
@@ -1128,8 +932,9 @@ void handle_RFM69Receive() {
 		// uint8_t tempData[RF69_MAX_DATA_LEN];
 		uint8_t datalen = radio.DATALEN;
 		uint8_t sender = radio.SENDERID;
-		uint8_t target = radio.TARGETID;
+		// uint8_t target = radio.TARGETID;
 		int16_t rssi = radio.RSSI;
+		memset(tempData, '\0', sizeof(tempData));
 		memcpy(tempData, (const void *)radio.DATA, datalen);
 
 		bool bACKreq = radio.ACKRequested();
@@ -1153,6 +958,14 @@ void handle_RFM69Receive() {
 		if (bACKreq) {
 			Serial.print("--> ACK sent");
 		}
+		Serial.println();
+
+		// we have received something from master
+		// if we not in an error state
+		if (iSystemState >= ciSystemState_normal) {
+			// switch back to normal
+			iSystemState = ciSystemState_normal;
+		}
 
 		// check for color command:
 		if (tempData[0] == 'c') {
@@ -1160,14 +973,43 @@ void handle_RFM69Receive() {
 			parseColor(Serial, tempData);
 		}
 
-		Serial.println();
+		// check for Infrared command:
+		if (tempData[0] == 'i') {
+			// set Infrared state
+			parseInfrared(Serial, tempData);
+		}
+
+		/*Serial.println();*/
 	}
 }
+
 
 void sendRunTime() {
 	Serial.println("sendRunTime:");
 	char tempData[] = "Hi i am running 000000000000000000ms";
 	sprintf(tempData, "Hi i am running %0u ms", millis());
+
+	Serial.print("\t tempData: ");
+	Serial.println(tempData);
+
+	Serial.print("\t target: ");
+	Serial.println(dconfThisBall.bMasterID);
+
+
+	Serial.print("\t sendWithRetry: ");
+	if (  radio.sendWithRetry(dconfThisBall.bMasterID, tempData, strlen(tempData) )   ) {
+		Serial.print(" ok!");
+	} else {
+		Serial.print(" nothing...");
+	}
+
+	Serial.println();
+}
+
+void sendLowBatWarning(unsigned long ulDuration_lowbat) {
+	Serial.println("sendLowBatWarning:");
+	char tempData[] = "LOWBAT 000000000000000000ms";
+	sprintf(tempData, "LOWBAT %0ums", ulDuration_lowbat);
 
 	Serial.print("\t tempData: ");
 	Serial.println(tempData);
@@ -1220,26 +1062,62 @@ void parseColor(Print &pOut, char *caCommand) {
 	uint8_t temp_blue = atoi(caTempPos);
 
 	uint16_t iColor[] = {
-		temp_red*255,
-		temp_green*255,
-		temp_blue*255
+		(uint16_t)temp_red*255,
+		(uint16_t)temp_green*255,
+		(uint16_t)temp_blue*255
 	};
 	ledboard_fadeToColor(iColor);
 }
+
+void parseInfrared(Print &pOut, char *caCommand) {
+	pOut.println(F("parsing Infrared:"));
+
+	pOut.print(F("\t   caCommand: '"));
+	pOut.print(caCommand);
+	pOut.println(F("'"));
+
+	// ir:255
+	char *caTempPos = &caCommand[1];
+
+	// find ':'
+	// init
+	caTempPos = strtok(caTempPos, ": ");
+	// get first position
+	caTempPos = strtok(NULL, ": ");
+
+	uint8_t iIR_state = atoi(caTempPos);
+
+	ledboard_setIRState(iIR_state);
+}
+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // LED Board
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-void ledboard_fadeToColor(uint16_t *iColor){
-	const uint8_t iChannelCount = myFader.getChannelCount();
-	uint16_t waTemp[iChannelCount];
-	for (uint16_t uiIndex = 0; uiIndex < iChannelCount; uiIndex = uiIndex + 3) {
-		waTemp[uiIndex+0] = iColor[0];
-		waTemp[uiIndex+1] = iColor[1];
-		waTemp[uiIndex+2] = iColor[2];
+void ledboard_setIRState(uint8_t iIR_state){
+	if (iLEDBoardState>=ciLEDBoardState_on) {
+		if (iIR_state){
+			digitalWrite(pinIRLED, HIGH);
+		} else {
+			//  switch IR LED OFF
+			digitalWrite(pinIRLED, LOW);
+		}
 	}
-	myFader.startFadeTo(200, waTemp);
+}
+
+void ledboard_fadeToColor(uint16_t *iColor){
+	if (iLEDBoardState>=ciLEDBoardState_on) {
+		const uint8_t iChannelCount = myFader.getChannelCount();
+		uint16_t waTemp[iChannelCount];
+		memset(waTemp, 0 , sizeof(waTemp));
+		for (uint16_t uiIndex = 0; uiIndex < iChannelCount; uiIndex = uiIndex + 3) {
+			waTemp[uiIndex+0] = iColor[0];
+			waTemp[uiIndex+1] = iColor[1];
+			waTemp[uiIndex+2] = iColor[2];
+		}
+		myFader.startFadeTo(200, waTemp);
+	}
 }
 
 void ledboard_test_nextColor() {
@@ -1315,45 +1193,92 @@ void ledboard_test_nextColor() {
 	}
 }
 
+void ledboard_setErrorColor(uint8_t uiWait, uint8_t uiRed, uint8_t uiGreen, uint8_t uiBlue){
+	const uint8_t iChannelCount = myFader.getChannelCount();
+	uint16_t waTemp[iChannelCount];
+	memset(waTemp, 0 , sizeof(waTemp));
+	uint8_t iLEDIndex = 0 * 3;
+	waTemp[iLEDIndex + 0] = uiRed*255;
+	waTemp[iLEDIndex + 2] = uiGreen*255;
+	waTemp[iLEDIndex + 1] = uiBlue*255;
+	myFader.startFadeTo(uiWait, waTemp);
+}
 
+void ledboard_showError(){
+	if(iLEDBoardState == ciLEDBoardState_off) {
+		// light up one led red
+		//                    wait, red, green, blue
+		ledboard_setErrorColor(0, 150, 0, 0);
+		// set state to showerror - now the error is visible.
+		iLEDBoardState = ciLEDBoardState_showerror;
+		// wait
+		ledboard_setErrorColor(1, 150, 0, 0);
+	} else if(iLEDBoardState == ciLEDBoardState_showerror) {
+		iLEDBoardState = ciLEDBoardState_off;
+		ledboard_setErrorColor(0, 0, 0, 0);
+		// ledboard_setErrorColor(50, 0, 0, 0);
+	}
+}
 
 
 uint16_t sequencer_CurrentStep = 0;
+uint16_t sequencer_StepFadeDuration = 5000; // ms
 
 uint16_t sequencer_StepData[][3] = {
-	{ // Off
-		  0,   0,   0,
-	},
-	{ // White 100%
-		255, 255, 255,
-	},
-	{ // White 50%
-		127, 127, 127,
-	},
-	{ // White 10%
-		 25,  25,  25,
-	},
+	// { // Off
+	// 	  0,   0,   0,
+	// },
+	// { // White 100%
+	// 	255, 255, 255,
+	// },
+	// { // White 50%
+	// 	127, 127, 127,
+	// },
+	// { // White 10%
+	// 	 25,  25,  25,
+	// },
 	{ // Red
-		255,   0,   0,
+		65535,     0,     0,
+	},
+	{ // Yellow
+		65535, 65535,     0,
 	},
 	{ // Green
-		  0, 255,   0,
+		    0, 65535,     0,
+	},
+	{ // Aqua
+		    0, 65535, 65535,
 	},
 	{ // Blue
-		  0,   0, 255,
+		    0,     0, 65535,
 	},
+	{ // Lila
+		65535,     0, 65535,
+	},
+	// { // White
+	// 	65535, 65535, 65535,
+	// },
 	// { // Welcome
-		  // 0,   0, 255,
+	// 	    0,     0,   255,
 	// },
 };
 
-const uint8_t sequencer_StepCount = sizeof(sequencer_StepData) / 3;
+const uint8_t sequencer_StepSize = 3 * sizeof(uint16_t);
+const uint8_t sequencer_StepCount = sizeof(sequencer_StepData) / sequencer_StepSize;
 
 void sequencer_NextStep() {
+	// Serial.println(F("sequencer_NextStep:"));
+	// Serial.print(F("\t curStep:"));
+	// Serial.println(sequencer_CurrentStep);
+
 	sequencer_CurrentStep = sequencer_CurrentStep +1;
 	if ( sequencer_CurrentStep >= sequencer_StepCount) {
 		sequencer_CurrentStep = 0;
 	}
+
+	// Serial.print(F("\t curStep:"));
+	// Serial.println(sequencer_CurrentStep);
+
 	const uint8_t iChannelCount = myFader.getChannelCount();
 	uint16_t waTemp[iChannelCount];
 	for (uint16_t uiIndex = 0; uiIndex < iChannelCount; uiIndex = uiIndex + 3) {
@@ -1361,10 +1286,8 @@ void sequencer_NextStep() {
 		waTemp[uiIndex+1] = sequencer_StepData[sequencer_CurrentStep][1];
 		waTemp[uiIndex+2] = sequencer_StepData[sequencer_CurrentStep][2];
 	}
-	myFader.startFadeTo(500, waTemp);
+	myFader.startFadeTo(sequencer_StepFadeDuration, waTemp);
 }
-
-
 
 void setLEDs_blue_front() {
 	uint16_t temp[myFader.getChannelCount()] = {
@@ -1404,44 +1327,89 @@ void myCallback_onEvent(slight_ButtonInput *pInstance, uint8_t bEvent) {
 
 	// show event additional infos:
 	switch (bEvent) {
-		/*case slight_ButtonInput::event_StateChanged : {
-			Serial.print(F("\t state: "));
-			(*pInstance).printState(Serial);
-			Serial.println();
-		} break;
-		// click
-		/*case slight_ButtonInput::event_Down : {
-			Serial.print(F("the button is pressed down! do something.."));
-		} break;*/
-		// case slight_ButtonInput::event_HoldingDown : {
-			// Serial.print(F("duration active: "));
-			// Serial.println((*pInstance).getDurationActive());
+		// case slight_ButtonInput::event_StateChanged : {
+		// 	Serial.print(F("\t state: "));
+		// 	(*pInstance).printState(Serial);
+		// 	Serial.println();
 		// } break;
-		/*case slight_ButtonInput::event_Up : {
-			Serial.print(F("up"));
-		} break;
-		*/
+		// click
+		// case slight_ButtonInput::event_Down : {
+		// 	Serial.print(F("the button is pressed down! do something.."));
+		// } break;
+		// case slight_ButtonInput::event_HoldingDown : {
+		// 	Serial.print(F("duration active: "));
+		// 	Serial.println((*pInstance).getDurationActive());
+		// } break;
+		// case slight_ButtonInput::event_Up : {
+		// 	Serial.print(F("up"));
+		// } break;
 		case slight_ButtonInput::event_Click : {
 			Serial.print(F("click"));
 			ledboard_test_nextColor();
 		} break;
 		// case slight_ButtonInput::event_ClickLong : {
-			// Serial.print(F("click long"));
+		// 	Serial.print(F("click long"));
 		// } break;
 		// case slight_ButtonInput::event_ClickDouble : {
-			// Serial.print(F("click double"));
+		// 	Serial.print(F("click double"));
 		// } break;
 		// case slight_ButtonInput::event_ClickTriple : {
-			// Serial.print(F("click triple"));
+		// 	Serial.print(F("click triple"));
 		// } break;
 		// case slight_ButtonInput::event_ClickMulti : {
-			// Serial.print(F("click count: "));
-			// Serial.println((*pInstance).getClickCount());
+		// 	Serial.print(F("click count: "));
+		// 	Serial.println((*pInstance).getClickCount());
 		// } break;
 	} //end switch
 
 }
 
+void myCallbackLowBat_onEvent(slight_ButtonInput *pInstance, uint8_t bEvent) {
+
+	// Serial.print(F("Instance ID:"));
+	// Serial.println((*pInstance).getID());
+
+	// Serial.print(F("Event: "));
+	// (*pInstance).printEvent(Serial, bEvent);
+	// Serial.println();
+
+	// show event additional infos:
+	switch (bEvent) {
+		// case slight_ButtonInput::event_StateChanged : {
+		// 	Serial.print(F("\t state: "));
+		// 	(*pInstance).printState(Serial);
+		// 	Serial.println();
+		// } break;
+		// click
+		// case slight_ButtonInput::event_Down : {
+		// 	Serial.print(F("the button is pressed down! do something.."));
+		// } break;
+		case slight_ButtonInput::event_HoldingDown : {
+			// Serial.println(F("duration active: "));
+			// Serial.println((*pInstance).getDurationActive());
+			handleLowBat((*pInstance).getDurationActive());
+		} break;
+		// case slight_ButtonInput::event_Up : {
+		// 	Serial.println(F("up"));
+		// } break;
+		// case slight_ButtonInput::event_Click : {
+		// 	Serial.println(F("click"));
+		// } break;
+		// case slight_ButtonInput::event_ClickLong : {
+		// 	Serial.println(F("click long"));
+		// } break;
+		// case slight_ButtonInput::event_ClickDouble : {
+		// 	Serial.println(F("click double"));
+		// } break;
+		// case slight_ButtonInput::event_ClickTriple : {
+		// 	Serial.println(F("click triple"));
+		// } break;
+		// case slight_ButtonInput::event_ClickMulti : {
+		// 	Serial.print(F("click count: "));
+		// 	Serial.println((*pInstance).getClickCount());
+		// } break;
+	} //end switch
+}
 
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1476,36 +1444,99 @@ void myFader_callback_onEvent(slight_FaderLin *pInstance, uint8_t bEvent) {
 			// (*pInstance).printState(Serial);
 			// Serial.println();
 
-			/* *
-			switch (bState) {
-				case slight_FaderLin::state_Standby : {
-						//
-					} break;
-				case slight_FaderLin::state_Fading : {
-						//
-					} break;
-				case slight_FaderLin::state_Finished : {
-						//
-					} break;
-			} //end switch
-			/* */
-
+			// switch (bState) {
+			// 	case slight_FaderLin::state_Standby : {
+			// 			//
+			// 		} break;
+			// 	case slight_FaderLin::state_Fading : {
+			// 			//
+			// 		} break;
+			// 	case slight_FaderLin::state_Finished : {
+			// 			//
+			// 		} break;
+			// } //end switch
 		} break;
 
 		case slight_FaderLin::event_fading_Finished : {
-			// Serial.print(F("\t fading Finished."));
-			// effectSystem_bMode = effectSys_Standby;
+			Serial.print(F("\t fading Finished. (boardstate: "));
+			Serial.print(iLEDBoardState);
+			Serial.print(F("; iSystemState: "));
+			Serial.print(iSystemState);
+			Serial.print(F("; sysruntime: "));
+			Serial.print(millis());
+			Serial.println(F("ms )"));
+
+			if (iLEDBoardState == ciLEDBoardState_showerror) {
+				ledboard_showError();
+			}
+
+			// if in demo mode than start next step.
+			if (iSystemState == ciSystemState_demomode) {
+				sequencer_NextStep();
+			}
+
+
 		} break;
 	} //end switch
+}
 
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// system state
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+void handleSystemState() {
+	unsigned long ulDuration = ( millis() - ulSystemState_TimeStamp_LastAction );
+	switch (iSystemState) {
+		case ciSystemState_off: {
+			// nothing to do here
+		} break;
+		case ciSystemState_lowbat: {
+			// blink every 2s
+			if ( ulDuration > cwSystemState_LowBatErrorInterval ) {
+				ulSystemState_TimeStamp_LastAction =  millis();
+				ledboard_showError();
+			}
+		} break;
+		case ciSystemState_startup: {
+			// we are started up.
+			// wait for master - timeout means we switch to DemoMode:
+			if ( ulDuration > cwSystemState_DemoModeWaitTime ) {
+				ulSystemState_TimeStamp_LastAction =  millis();
+				// switch to DemoMode
+				iSystemState = ciSystemState_demomode;
+				sequencer_NextStep();
+			}
+		} break;
+		case ciSystemState_demomode:
+		case ciSystemState_normal: {
+			// nothing to do here
+		} break;
+		default: {
+			// something went wronge - so reset to normal
+			iSystemState = ciSystemState_normal;
+		}
+	} // end switch bMenuMode
 }
 
 
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// some things
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+void handleLowBat(unsigned long ulDuration_lowbat) {
+	if(bFlag_LowBat_enabled){
+		if(iSystemState != ciSystemState_lowbat){
+			iSystemState = ciSystemState_lowbat;
+			//  switch IR and color LEDs off
+			ledboard_setIRState(0);
+			uint16_t iColor[] = {0,0,0};
+			ledboard_fadeToColor(iColor);
+			// disable use of ledboard
+			iLEDBoardState = ciLEDBoardState_off;
+			ledboard_showError();
+			// send warning to master
+			sendLowBatWarning(ulDuration_lowbat);
+		}
+	}
+}
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
@@ -1589,7 +1620,7 @@ void setup() {
 		Serial.println(freeRam());
 
 		// print all global parameters
-		printRFM69Info(Serial);
+		printRFM69Info(Serial, &dconfThisBall, &dhwThisBall);
 		Serial.println(F("setup RFM69:")); {
 
 			Serial.println(F("\t --> initialize"));
@@ -1657,8 +1688,14 @@ void setup() {
 			pinMode(myButtonSwitchColor.getPin(), INPUT);
 			digitalWrite(myButtonSwitchColor.getPin(), HIGH);
 
+			// for the LOWBAT we have a external pullup!!
+			pinMode(myButtonLowBat.getPin(), INPUT);
+			digitalWrite(myButtonLowBat.getPin(), LOW);
+
 			Serial.println(F("\t myButtonSwitchColor.begin();"));
 			myButtonSwitchColor.begin();
+			Serial.println(F("\t myButtonLowBat.begin();"));
+			myButtonLowBat.begin();
 
 		}
 		Serial.println(F("\t finished."));
@@ -1675,12 +1712,6 @@ void setup() {
 		sMenu_Input_New[0] = '?';
 		bMenu_Input_Flag_EOL = true;
 
-
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// start default mode
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-	setLEDs_blue_front();
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// GO
@@ -1718,6 +1749,12 @@ void loop() {
 	// my Button
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		myButtonSwitchColor.update();
+		myButtonLowBat.update();
+
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	// system state
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		handleSystemState();
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// Timed things
