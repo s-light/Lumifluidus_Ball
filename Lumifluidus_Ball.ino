@@ -1,105 +1,103 @@
-/// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~**
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// LightBall_V1
+// 	uses Hope RFM69 Module to transmit data.
+// 	receives color Information for LED-Display.
+// 	Answers 'How Is There' Packages.
+// 	debugout on usbserial interface: 115200baud
+//
+// hardware:
+// 	Board:
+// 		Arduino compatible
+// 		with RFM69 module
+// 		for example: Mega1284RFM69_PCB
+//
+// libraries used:
+// 	~ Wire.h  arduino TWI-lib
+// 	~ SPI.h arduino SPI-lib
+// 	~ EEPROMEx.h
+// 		Extended EEPROM library
+// 		Copyright (c) 2012 Thijs Elenbaas.  All right reserved.
+// 		GNU Lesser General Public  License, version 2.1
+// 		http://thijs.elenbaas.net/2012/07/extended-eeprom-library-for-arduino/
+// 	~ RFM69.h
+// 		RFM69 Library
+// 		for Hope RF RFM69W, RFM69HW, RFM69CW, RFM69HCW (semtech SX1231, SX1231H)
+// 		Copyright Felix Rusu (2014), felix@lowpowerlab.com
+// 		http://lowpowerlab.com/
+// 		GNU General Public License 3 (http://www.gnu.org/licenses/gpl-3.0.txt)
+// 		https://github.com/LowPowerLab/
+// 	~ Adafruit_TLC59711.h
+// 		Adafruit Library
+// 		for Texas Instruments TLC59711 12ch 16bit LED constant sink driver
+// 			This is a library for our Adafruit 12-channel PWM/LED drive
+// 			Pick one up today in the adafruit shop!
+// 			------> http://www.adafruit.com/products/1455
+// 			These drivers uses SPI to communicate, 2 pins are required to
+// 			interface: Data and Clock. The boards are chainable.
+// 			Adafruit invests time and resources providing this open source code,
+// 			please support Adafruit and open-source hardware by purchasing products from Adafruit!
+// 			Written by Limor Fried/Ladyada for Adafruit Industries.
+// 			BSD license, all text above must be included in any redistribution
+// 		https://github.com/adafruit/Adafruit_TLC59711
+// 	~ slight_FaderLin
+// 	~ slight_ButtonInput
+// 		written by stefan krueger (s-light),
+// 			github@s-light.eu, http://s-light.eu, https://github.com/s-light/
+// 			MIT
+// 	~
+//
+//
+// written by stefan krueger (s-light),
+// 	stefan@s-light.eu, http://s-light.eu, https://github.com/s-light/
+//
+//
+// changelog / history
+// 	28.10.2014 09:24 created (based on __Template_SLIGHT.ino)
+// 	28.10.2014 09:24 added EEPROMEx & DeviceIdentity.h (not finished)
+// 	08.02.2015 13:47 merge things from 'HWTest_RFM69.ino'
+// 	08.02.2015 23:00 basic RFM69 test works.
+// 	08.02.2015 23:00 EEPROM configuration works.
+// 	10.02.2015 22:55 add LED-Driver Chip test
+// 	10.02.2015 22:55 extend LED test with FaderLin and ButtonInput
+// 	14.03.2015 20:10 added receive Color function
+// 	11.01.2018 17:02 converted to git repository
+//
+//
+// TO DO:
+// 	~
+// 	~
+// 	~ check RFM69 lib  license?!
+// 		if i understand this right - if i use the RFM69 lib i have to license my own work also as GPL. ??
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	LightBall_V1
-		uses Hope RFM69 Module to transmit data.
-		receives color Information for LED-Display.
-		Answers 'How Is There' Packages.
-		debugout on usbserial interface: 115200baud
-
-	hardware:
-		Board:
-			Arduino compatible
-			with RFM69 module
-			for example: Mega1284RFM69_PCB
-
-	libraries used:
-		~ Wire.h  arduino TWI-lib
-		~ SPI.h arduino SPI-lib
-		~ EEPROMEx.h
-			Extended EEPROM library
-			Copyright (c) 2012 Thijs Elenbaas.  All right reserved.
-			GNU Lesser General Public  License, version 2.1
-			http://thijs.elenbaas.net/2012/07/extended-eeprom-library-for-arduino/
-		~ RFM69.h
-			RFM69 Library
-			for Hope RF RFM69W, RFM69HW, RFM69CW, RFM69HCW (semtech SX1231, SX1231H)
-			Copyright Felix Rusu (2014), felix@lowpowerlab.com
-			http://lowpowerlab.com/
-			GNU General Public License 3 (http://www.gnu.org/licenses/gpl-3.0.txt)
-			https://github.com/LowPowerLab/
-		~ Adafruit_TLC59711.h
-			Adafruit Library
-			for Texas Instruments TLC59711 12ch 16bit LED constant sink driver
-				This is a library for our Adafruit 12-channel PWM/LED drive
-				Pick one up today in the adafruit shop!
-				------> http://www.adafruit.com/products/1455
-				These drivers uses SPI to communicate, 2 pins are required to
-				interface: Data and Clock. The boards are chainable.
-				Adafruit invests time and resources providing this open source code,
-				please support Adafruit and open-source hardware by purchasing products from Adafruit!
-				Written by Limor Fried/Ladyada for Adafruit Industries.
-				BSD license, all text above must be included in any redistribution
-			https://github.com/adafruit/Adafruit_TLC59711
-		~ slight_FaderLin
-		~ slight_ButtonInput
-			written by stefan krueger (s-light),
-				github@s-light.eu, http://s-light.eu, https://github.com/s-light/
-				MIT
-		~
-
-
-	written by stefan krueger (s-light),
-		stefan@s-light.eu, http://s-light.eu, https://github.com/s-light/
-
-
-	changelog / history
-		28.10.2014 09:24 created (based on __Template_SLIGHT.ino)
-		28.10.2014 09:24 added EEPROMEx & DeviceIdentity.h (not finished)
-		08.02.2015 13:47 merge things from 'HWTest_RFM69.ino'
-		08.02.2015 23:00 basic RFM69 test works.
-		08.02.2015 23:00 EEPROM configuration works.
-		10.02.2015 22:55 add LED-Driver Chip test
-		10.02.2015 22:55 extend LED test with FaderLin and ButtonInput
-		14.03.2015 20:10 added receive Color function
-		11.01.2018 17:02 converted to git repository
-
-
-	TO DO:
-		~
-		~
-		~ check RFM69 lib  license?!
-			if i understand this right - if i use the RFM69 lib i have to license my own work also as GPL. ??
-
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~**/
-/// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~**
-	license
-
-	GNU GENERAL PUBLIC LICENSE (Version 3, 29 June 2007 or later)
-		details see LICENSE file
-
-	Apache License Version 2.0
-		Copyright 2015-2018 Stefan Krueger
-
-		Licensed under the Apache License, Version 2.0 (the "License");
-		you may not use this file except in compliance with the License.
-		You may obtain a copy of the License at
-
-		http://www.apache.org/licenses/LICENSE-2.0
-
-		Unless required by applicable law or agreed to in writing, software
-		distributed under the License is distributed on an "AS IS" BASIS,
-		WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-		See the License for the specific language governing permissions and
-		limitations under the License.
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~**/
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// license
+//
+// GNU GENERAL PUBLIC LICENSE (Version 3, 29 June 2007 or later)
+// 	details see LICENSE file
+//
+// Apache License Version 2.0
+// 	Copyright 2015-2018 Stefan Krueger
+//
+// 	Licensed under the Apache License, Version 2.0 (the "License");
+// 	you may not use this file except in compliance with the License.
+// 	You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// 	Unless required by applicable law or agreed to in writing, software
+// 	distributed under the License is distributed on an "AS IS" BASIS,
+// 	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// 	See the License for the specific language governing permissions and
+// 	limitations under the License.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Includes:  (must be at the beginning of the file.)
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // use "" for files in same directory as .ino
-//#include "file.h"
+// #include "file.h"
 
 // device identity structure definitions
 #include "DeviceIdentity.h"
@@ -1366,6 +1364,19 @@ void sequencer_NextStep() {
 	myFader.startFadeTo(500, waTemp);
 }
 
+
+
+void setLEDs_blue_front() {
+	uint16_t temp[myFader.getChannelCount()] = {
+    //  r,     g,     b
+		    0,     0, 65535,
+		    0,     0,     0,
+		    0,     0,     0,
+		    0,     0, 65535,
+	};
+	myFader.startFadeTo(500, temp);
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // input handler
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1582,7 +1593,10 @@ void setup() {
 		Serial.println(F("setup RFM69:")); {
 
 			Serial.println(F("\t --> initialize"));
-			radio.initialize(dhwThisBall.radio_Frequency, dconfThisBall.bBallID, dconfThisBall.bNetworkID);
+			radio.initialize(
+				dhwThisBall.radio_Frequency,
+				dconfThisBall.bBallID,
+				dconfThisBall.bNetworkID);
 
 			Serial.println(F("\t --> set HighPower"));
 			//uncomment only for RFM69HW!
@@ -1663,12 +1677,16 @@ void setup() {
 
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	// start default mode
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	setLEDs_blue_front();
+
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// GO
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 		Serial.println(F("Loop:"));
-
-
 
 } // setup
 
