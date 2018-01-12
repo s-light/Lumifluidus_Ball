@@ -118,10 +118,6 @@
 // arduino TWI / I2C lib
 // #include <Wire.h>
 
-// edit EEPROMEx.h so that EEPROM.h is not include seams to work.. ?!
-// #include <EEPROM.h>
-#include <EEPROMEx.h>
-
 #include <RFM69.h>
 
 #include <Adafruit_TLC59711.h>
@@ -171,10 +167,10 @@ void print_info(Print &pOut) {
 }
 
 
-/** Serial.print to Flash: Notepad++ Replace RegEx
-	Find what:		Serial.print(.*)\("(.*)"\);
-	Replace with:	Serial.print\1\(F\("\2"\)\);
-**/
+// Serial.print to Flash: Notepad++ Replace RegEx
+// Find what:		Serial.print(.*)\("(.*)"\);
+// Replace with:	Serial.print\1\(F\("\2"\)\);
+
 
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1750,10 +1746,10 @@ void handleSystemState() {
 			if ( ulDuration > cwSystemState_DemoModeWaitTime ) {
 				ulSystemState_TimeStamp_LastAction =  millis();
 				// switch to DemoMode
-				// iSystemState = ciSystemState_demomode;
-				// sequencer_NextStep();
+				iSystemState = ciSystemState_demomode;
+				sequencer_NextStep();
         // switch to blue front mode
-				iSystemState = ciSystemState_bluefront;
+				// iSystemState = ciSystemState_bluefront;
 			}
 		} break;
 		case ciSystemState_demomode:
