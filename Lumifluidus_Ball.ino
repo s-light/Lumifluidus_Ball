@@ -288,11 +288,11 @@ uint8_t iLEDBoardState = ciLEDBoardState_fade;
 const uint8_t pinIRLED = 15;
 
 // TLC59711
-	// How many boards do you have chained?
-	#define NUM_TLC59711 1
-	#define data   12
-	#define clock  13
-	Adafruit_TLC59711 tlc = Adafruit_TLC59711(NUM_TLC59711, clock, data);
+// How many boards do you have chained?
+const uint8_t NUM_TLC59711 = 1;
+const uint8_t data = 12;
+const uint8_t clock = 13;
+Adafruit_TLC59711 tlc = Adafruit_TLC59711(NUM_TLC59711, clock, data);
 
 uint8_t uiLEDDriverTestStep = 0;
 
@@ -341,7 +341,7 @@ slight_ButtonInput myButtonLowBat(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // a string to hold new data
-char  sMenu_Input_New[]				= "x:TestValue";
+char  sMenu_Input_New[]				= "F:65535;255,255,255,255,255,255,255,255,255,255,255,255";
 // flag if string is complete
 bool bMenu_Input_Flag_BF		= false; // BufferFull
 bool bMenu_Input_Flag_EOL		= false;
@@ -351,7 +351,7 @@ bool bMenu_Input_Flag_LongLine	= false;
 bool bMenu_Input_Flag_SkipRest	= false;
 
 // string for Currently to process Command
-char  sMenu_Command_Current[]		= "x:TestValue ";
+char  sMenu_Command_Current[]		= "F:65535;255,255,255,255,255,255,255,255,255,255,255,255 ";
 
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -637,6 +637,9 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 			pOut.println(F("\t 'l': test led-driver steps"));
 			pOut.println(F("\t 'L': test led-driver static"));
 			pOut.println(F("\t '0': toggle LowBat warning"));
+			pOut.println();
+			pOut.println(F("\t 'f': parseFadeColorASCII 'fade:65535;255,255,255'"));
+			pOut.println(F("\t 'F': parseFadeColorIndividualASCII 'F:65535;255,255,255,255,255,255,255,255,255,255,255,255'"));
 			// pOut.println(F("\t 'f': DemoFadeTo(ID, value) 'f1:65535'"));
 			pOut.println();
 			pOut.println(F("\t 'set:' enter SubMenu1"));
@@ -667,6 +670,11 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 			pOut.println(F("   "));
 			printRFM69Info(pOut, &dconfThisBall, &dhwThisBall);
 
+			pOut.println();
+
+
+			pOut.print(F("RF69_MAX_DATA_LEN: "));
+			pOut.print(RF69_MAX_DATA_LEN);
 			pOut.println();
 
 			pOut.println(F("__________"));
@@ -700,6 +708,15 @@ void handleMenu_Main(Print &pOut, char *caCommand) {
 				iLEDBoardState = ciLEDBoardState_on;
 				iSystemState = ciSystemState_startup;
 			}
+		} break;
+		//--------------------------------------------------------------------------------
+		case 'f': {
+			pOut.println(F("\t parseFadeColorASCII:"));
+			parseFadeColorASCII(pOut, caCommand);
+		} break;
+		case 'F': {
+			pOut.println(F("\t parseFadeColorIndividualASCII:"));
+			parseFadeColorIndividualASCII(pOut, caCommand);
 		} break;
 
 		//--------------------------------------------------------------------------------
@@ -968,22 +985,32 @@ void handle_RFM69Receive() {
 			iSystemState = ciSystemState_normal;
 		}
 
-		// check for color command:
-		if (tempData[0] == 'c') {
-			// set color
-			parseColor(Serial, tempData);
-		}
-
-		// check for Infrared command:
-		if (tempData[0] == 'i') {
-			// set Infrared state
-			parseInfrared(Serial, tempData);
-		}
+		parseReceivedData(Serial, tempData);
 
 		/*Serial.println();*/
 	}
 }
 
+void parseReceivedData(Print &out, char *data) {
+	switch (data[0]) {
+		case 'c': {
+			// set color
+			parseColor(out, data);
+		} break;
+		case 'f': {
+      // fade color
+			parseFadeColorASCII(out, data);
+		} break;
+		case 'F': {
+      // fade color
+			parseFadeColorIndividualASCII(out, data);
+		} break;
+		case 'i': {
+			// set Infrared state
+			parseInfrared(out, data);
+		} break;
+	}
+}
 
 void sendRunTime() {
 	Serial.println("sendRunTime:");
@@ -1041,26 +1068,26 @@ void parseColor(Print &pOut, char *caCommand) {
 	pOut.println(F("'"));
 
 	// color:255,255,255
-	char *caTempPos = &caCommand[1];
+	char *tempPos = &caCommand[1];
 
 	// find ':'
 	// init
-	caTempPos = strtok(caTempPos, ": ");
+	tempPos = strtok(tempPos, ": ");
 	// get first position
-	caTempPos = strtok(NULL, ": ");
+	tempPos = strtok(NULL, ": ");
 
-	uint8_t temp_red = atoi(caTempPos);
+	uint8_t temp_red = atoi(tempPos);
 
 	// find ','
 	// init
-	caTempPos = strtok(caTempPos, ", ");
+	tempPos = strtok(tempPos, ", ");
 	// get first position
-	caTempPos = strtok(NULL, ", ");
-	uint8_t temp_green = atoi(caTempPos);
+	tempPos = strtok(NULL, ", ");
+	uint8_t temp_green = atoi(tempPos);
 
 	// get second position
-	caTempPos = strtok(NULL, ", ");
-	uint8_t temp_blue = atoi(caTempPos);
+	tempPos = strtok(NULL, ", ");
+	uint8_t temp_blue = atoi(tempPos);
 
 	uint16_t iColor[] = {
 		(uint16_t)temp_red*255,
@@ -1069,6 +1096,224 @@ void parseColor(Print &pOut, char *caCommand) {
 	};
 	ledboard_fadeToColor(iColor);
 }
+
+void parseFadeColorASCII(Print &out, char *command) {
+	out.println(F("parsing Fade Color ASCII:"));
+
+	out.print(F("\t   command: '"));
+	out.print(command);
+	out.println(F("'"));
+
+	// command:
+	// fade:65535;255,255,255
+	char *tempPos = &command[1];
+
+	// init for ':'
+	tempPos = strtok(tempPos, ": ");
+	// get first position
+	tempPos = strtok(NULL, ": ");
+
+	uint16_t temp_fadetime = atoi(tempPos);
+
+	// init for ';'
+	tempPos = strtok(tempPos, "; ");
+	// get first position
+	tempPos = strtok(NULL, "; ");
+	uint8_t temp_red = atoi(tempPos);
+
+	// init for ','
+	tempPos = strtok(tempPos, ", ");
+	// get first ','
+	tempPos = strtok(NULL, ", ");
+	uint8_t temp_green = atoi(tempPos);
+
+	// get second ','
+	tempPos = strtok(NULL, ", ");
+	uint8_t temp_blue = atoi(tempPos);
+
+
+	out.print(F("\t   time: '"));
+	out.print(temp_fadetime);
+	out.println(F("'"));
+	out.print(F("\t   red: '"));
+	out.print(temp_red);
+	out.println(F("'"));
+	out.print(F("\t   green: '"));
+	out.print(temp_green);
+	out.println(F("'"));
+	out.print(F("\t   blue: '"));
+	out.print(temp_blue);
+	out.println(F("'"));
+
+
+	uint16_t iColor[] = {
+		(uint16_t)temp_red*255,
+		(uint16_t)temp_green*255,
+		(uint16_t)temp_blue*255
+	};
+	ledboard_fadeToColor(iColor);
+}
+
+void parseFadeColorIndividualASCII(Print &out, char *command) {
+	out.println(F("parsing Fade Color Individual ASCII:"));
+
+	out.print(F("\t   command: '"));
+	out.print(command);
+	out.println(F("'"));
+
+	// command:
+	// F:65535;255,255,255,255,255,255,255,255,255,255,255,255
+
+  // tests:
+	// F:100;200,0,0,0,20,0,0,0,30,10,10,10
+
+	char *tempPos = &command[0];
+
+	// init for ':'
+	tempPos = strtok(tempPos, ": ");
+	// get first position
+	tempPos = strtok(NULL, ": ");
+
+	uint16_t temp_fadetime = atoi(tempPos);
+
+
+	out.print(F("\t   time: '"));
+	out.print(temp_fadetime);
+	out.println(F("'"));
+
+	out.print(F("\t   tempPos: '"));
+	out.print(tempPos);
+	out.println(F("'"));
+
+	uint16_t temp[myFader.getChannelCount()] = {
+		0,0,0,
+		0,0,0,
+		0,0,0,
+		0,0,0,
+	};
+
+
+	// init for ','
+	tempPos = strtok(tempPos, "; ");
+
+	out.println(F("\t   init for '; '"));
+	out.print(F("\t   tempPos: '"));
+	out.print(tempPos);
+	out.println(F("'"));
+
+	tempPos = strtok(NULL, "; ");
+	out.println(F("\t   find first '; '"));
+	out.print(F("\t   tempPos: '"));
+	out.print(tempPos);
+	out.println(F("'"));
+
+	// init for ','
+	tempPos = strtok(tempPos, ", ");
+
+	out.println(F("\t   init for ', '"));
+	out.print(F("\t   tempPos: '"));
+	out.print(tempPos);
+	out.println(F("'"));
+
+	// // get first ','
+	// tempPos = strtok(NULL, ", ");
+
+	for (
+		size_t i = 0;
+		(
+			(i < myFader.getChannelCount()) &&
+			(tempPos != NULL)
+		);
+		i++
+	) {
+		out.print(F("\t   i:"));
+		out.print(i);
+		out.print(F("   tempPos: '"));
+		out.print(tempPos);
+		out.println(F("'"));
+
+		uint8_t temp_value = atoi(tempPos);
+		tempPos = strtok(NULL, ", ");
+
+		out.print(F("\t   value: '"));
+		out.print(temp_value);
+		out.println(F("'"));
+
+		temp[i] = (uint16_t)temp_value*255;
+	}
+
+	// for (size_t i = 0; i < 4; i++) {
+	// 	// init for ';'
+	// 	tempPos = strtok(tempPos, "; ");
+	// 	// get first position
+	// 	tempPos = strtok(NULL, "; ");
+	// 	uint8_t temp_red = atoi(tempPos);
+  //
+	// 	// init for ','
+	// 	tempPos = strtok(tempPos, ", ");
+	// 	// get first ','
+	// 	tempPos = strtok(NULL, ", ");
+	// 	uint8_t temp_green = atoi(tempPos);
+  //
+	// 	// get second ','
+	// 	tempPos = strtok(NULL, ", ");
+	// 	uint8_t temp_blue = atoi(tempPos);
+  //
+	// 	out.print(F("\t   red: '"));
+	// 	out.print(temp_red);
+	// 	out.println(F("'"));
+	// 	out.print(F("\t   green: '"));
+	// 	out.print(temp_green);
+	// 	out.println(F("'"));
+	// 	out.print(F("\t   blue: '"));
+	// 	out.print(temp_blue);
+	// 	out.println(F("'"));
+  //
+	// 	temp[(i*3) + 0] = (uint16_t)emp_red*255;
+	// 	temp[(i*3) + 1] = (uint16_t)emp_red*255;
+	// 	temp[(i*3) + 2] = (uint16_t)emp_red*255;
+	// }
+
+	myFader.startFadeTo(500, temp);
+}
+
+// void parseFadeColorBINARY(Print &out, char *command) {
+// 	out.println(F("parsing Fade Color BINARY:"));
+//
+// 	out.print(F("\t   command: '"));
+// 	out.print(command);
+// 	out.println(F("'"));
+//
+// 	if (
+// 		(&command[1] == 'F') &&
+// 		(&command[1] == 'B') &&
+// 		(&command[1] == ':')
+// 	) {
+// 		// command:
+// 		// FB:TTRGB
+//
+// 		uint16_t temp[myFader.getChannelCount()];
+//
+// 		char *tempPos = &command[1];
+//
+// 		temp[0] = (uint16_t)tempPos*255;
+//
+// 		out.print(F("\t   time: '"));
+// 		out.print(temp_fadetime);
+// 		out.println(F("'"));
+// 		out.print(F("\t   red: '"));
+// 		out.print(temp_red);
+// 		out.println(F("'"));
+// 		out.print(F("\t   green: '"));
+// 		out.print(temp_green);
+// 		out.println(F("'"));
+// 		out.print(F("\t   blue: '"));
+// 		out.print(temp_blue);
+// 		out.println(F("'"));
+//
+// 		myFader.startFadeTo(500, temp);
+// 	}
+// }
 
 void parseInfrared(Print &pOut, char *caCommand) {
 	pOut.println(F("parsing Infrared:"));
